@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 from datetime import datetime, date
+import os  # 🔐 ДОБАВЛЕНО: Для работы с переменными окружения
 
 st.set_page_config(page_title="Finance Tracker Pro", layout="wide")
 
@@ -16,9 +17,19 @@ if "token" not in st.session_state:
 if "user_email" not in st.session_state:
     st.session_state.user_email = None
 
-BASE_URL = "http://127.0.0.1:8000"
+# 🔐 БЕЗОПАСНОЕ ОПРЕДЕЛЕНИЕ URL
+# 1. Проверяем переменную окружения (если задана в Render)
+BASE_URL = os.getenv("API_URL")
 
-# ✅ ИСПРАВЛЕНИЕ 1: Добавляем category в параметры
+# 2. Если не задана, определяем среду автоматически
+if not BASE_URL:
+    if os.getenv("RENDER"):  # Если мы в облаке Render
+        BASE_URL = "https://finance-tracker-api-q1qg.onrender.com"
+    else:                    # Если мы на компьютере (локально)
+        BASE_URL = "http://127.0.0.1:8000"
+
+# 🔐 БЕЗОПАСНЫЕ ФУНКЦИИ API (СКРЫВАЮТ ТЕХНИЧЕСКИЕ ДЕТАЛИ ОШИБОК)
+
 @st.cache_data(ttl=10)
 def fetch_transactions(token: str, tx_type: str = None, year: int = None, month: int = None, category: str = None):
     headers = {"Authorization": f"Bearer {token}"}
@@ -30,11 +41,18 @@ def fetch_transactions(token: str, tx_type: str = None, year: int = None, month:
     
     try:
         resp = requests.get(f"{BASE_URL}/api/v1/transactions/", headers=headers, params=params, timeout=10)
-        return resp.json() if resp.status_code == 200 else []
-    except:
+        if resp.status_code == 200:
+            return resp.json()
+        elif resp.status_code == 401:
+            st.session_state.token = None # Сброс токена, если он протух
+            return []
+        else:
+            return []
+    except requests.exceptions.ConnectionError:
+        return []
+    except Exception:
         return []
 
-# ✅ ИСПРАВЛЕНИЕ 2: Summary теперь принимает фильтры по типу и категории
 @st.cache_data(ttl=10)
 def fetch_summary(token: str, year: int = None, month: int = None, tx_type: str = None, category: str = None):
     headers = {"Authorization": f"Bearer {token}"}
@@ -62,9 +80,15 @@ def create_transaction(token: str, amount: float, category: str, description: st
     }
     try:
         resp = requests.post(f"{BASE_URL}/api/v1/transactions/", json=data, headers=headers, timeout=10)
-        return resp.status_code, resp.json() if resp.status_code < 400 else resp.text
-    except Exception as e:
-        return 500, str(e)
+        if resp.status_code == 201:
+            return 201, resp.json()
+        else:
+            # Скрываем детали ошибки от пользователя
+            return resp.status_code, "Ошибка сохранения данных"
+    except requests.exceptions.ConnectionError:
+        return 500, "Нет связи с сервером"
+    except Exception:
+        return 500, "Неизвестная ошибка"
 
 def delete_transaction(token: str, tx_id: int):
     headers = {"Authorization": f"Bearer {token}"}
@@ -74,28 +98,40 @@ def delete_transaction(token: str, tx_id: int):
     except:
         return 500
 
+# --- ИНТЕРФЕЙС АВТОРИЗАЦИИ ---
+
 if not st.session_state.token:
     st.title("💰 Finance Tracker Pro")
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.subheader("🔐 Вход")
+        st.subheader(" Вход")
         email = st.text_input("Email", placeholder="you@example.com")
         password = st.text_input("Пароль", type="password")
         if st.button("Войти", type="primary", use_container_width=True):
-            if not email or not password: st.warning("Введите email и пароль")
+            if not email or not password: 
+                st.warning("Введите email и пароль")
             else:
                 try:
                     resp = requests.post(f"{BASE_URL}/api/v1/auth/login", 
                         data={"username": email, "password": password},
                         headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=10)
+                    
                     if resp.status_code == 200:
                         st.session_state.token = resp.json()["access_token"]
                         st.session_state.user_email = email
                         st.rerun()
-                    else: st.error(f"Ошибка: {resp.json().get('detail', 'Неизвестная ошибка')}")
-                except Exception as e:
-                    st.error(f"Не удалось подключиться: {e}")
+                    elif resp.status_code == 429:
+                        st.error("🛑 Слишком много попыток. Подождите минуту.")
+                    else:
+                        # Безопасное сообщение, не раскрывающее детали
+                        st.error("Неверный email или пароль")
+                except requests.exceptions.ConnectionError:
+                    st.error("Не удалось подключиться к серверу.")
+                except Exception:
+                    st.error("Произошла ошибка. Попробуйте позже.")
     st.stop()
+
+# --- ОСНОВНОЙ ИНТЕРФЕЙС ---
 
 st.sidebar.title(f"👤 {st.session_state.user_email}")
 if st.sidebar.button("🚪 Выйти"):
@@ -114,7 +150,6 @@ with st.sidebar.expander("🔍 Фильтры", expanded=True):
     
     filter_type = st.radio("Тип", options=["Все", "Доходы", "Расходы"], index=0)
     
-    # Динамические категории для фильтра
     if filter_type == "Доходы":
         cat_filter_options = ["Все"] + INCOME_CATS
     elif filter_type == "Расходы":
@@ -124,32 +159,23 @@ with st.sidebar.expander("🔍 Фильтры", expanded=True):
     
     filter_category = st.selectbox("Категория", options=cat_filter_options)
     
-    # ✅ ИСПРАВЛЕНИЕ: Передаём тип в API правильно
     tx_type_param = None if filter_type == "Все" else ("income" if filter_type == "Доходы" else "expense")
     cat_param = filter_category if filter_category != "Все" else None
     
     if st.button("Применить фильтры"):
         st.cache_data.clear()
 
-# 🔹 Загрузка данных с фильтрами
+# 🔹 Загрузка данных
 with st.spinner("Загрузка..."):
     transactions = fetch_transactions(st.session_state.token, tx_type_param, filter_year, filter_month, cat_param)
     
-    # ✅ ИСПРАВЛЕНИЕ: Summary теперь ВСЕГДА считается по выбранным фильтрам
-    # Передаём category ТОЛЬКО если выбрана конкретная категория (не "Все")
-    summary_params = {
-        "token": st.session_state.token,
-        "year": filter_year,
-        "month": filter_month
-    }
-    if tx_type_param:
-        summary_params["tx_type"] = tx_type_param
-    if cat_param:
-        summary_params["category"] = cat_param  # ✅ Передаём категорию!
+    summary_params = {"token": st.session_state.token, "year": filter_year, "month": filter_month}
+    if tx_type_param: summary_params["tx_type"] = tx_type_param
+    if cat_param: summary_params["category"] = cat_param
     
     summary = fetch_summary(**summary_params)
 
-# 🔹 Метрики (теперь обновляются по фильтрам!)
+# 🔹 Метрики
 col_bal1, col_bal2, col_bal3 = st.columns(3)
 
 if summary and summary.get("total_income") is not None:
@@ -160,13 +186,12 @@ if summary and summary.get("total_income") is not None:
                    delta=f"{balance:+,.2f}", 
                    delta_color="normal" if balance >= 0 else "inverse")
 else:
-    # Если summary не загрузился, считаем вручную из transactions
     if transactions:
         df_temp = pd.DataFrame(transactions)
         income = df_temp[df_temp["type"]=="income"]["amount"].sum()
         expense = df_temp[df_temp["type"]=="expense"]["amount"].sum()
         col_bal1.metric("💰 Доходы", f"{income:,.2f} ₽")
-        col_bal2.metric("💸 Расходы", f"{expense:,.2f} ₽")
+        col_bal2.metric(" Расходы", f"{expense:,.2f} ₽")
         col_bal3.metric("⚖️ Баланс", f"{income-expense:,.2f} ₽")
 
 # 🔹 Графики
@@ -279,4 +304,3 @@ with st.sidebar.form("add_tx", clear_on_submit=False):
                     st.rerun()
                 else:
                     st.sidebar.error(f"❌ Ошибка {status}: {result}")
-                    st.sidebar.info("💡 Проверьте, что сервер запущен на порту 8000")
