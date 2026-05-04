@@ -10,6 +10,13 @@ router = APIRouter(tags=["auth"])
 
 @router.post("/register", response_model=schemas.Token)
 def register(user_in: schemas.UserCreate, db: Session = Depends(database.get_db)):
+    # 🔐 ШАГ 3: Проверка сложности пароля ПЕРЕД созданием пользователя
+    if not auth.validate_password(user_in.password):
+        raise HTTPException(
+            status_code=400,
+            detail="Пароль слишком слабый. Требуется: 8+ символов, заглавные, строчные, цифры и спецсимволы."
+        )
+
     # Проверяем, не занят ли email
     existing = db.query(models.User).filter(models.User.email == user_in.email).first()
     if existing:
@@ -34,7 +41,7 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(database.get_db)
 ):
-    # Аутентифицируем пользователя
+    # Аутентифицируем пользователя (используем функцию из auth.py)
     user = auth.authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
