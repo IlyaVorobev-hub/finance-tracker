@@ -1,14 +1,13 @@
 # src/api/schemas.py
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from datetime import date, datetime
-from typing import Optional, List
-from typing import Literal, Optional
+from typing import Optional, Literal
 
 # --- Транзакции ---
 class TransactionBase(BaseModel):
-    amount: float
-    category: str
-    description: Optional[str] = None
+    amount: float = Field(..., gt=0)  # 🔐 Сумма строго больше 0
+    category: str = Field(..., min_length=1, max_length=100)  # 🔐 Длина категории
+    description: Optional[str] = Field(default="", max_length=500)  # 🔐 Лимит описания
     date: date
     type: Literal['income', 'expense'] = 'expense'
     payment_method: Literal['cash', 'card'] = 'card'
@@ -22,12 +21,12 @@ class TransactionResponse(TransactionBase):
     created_at: datetime
     model_config = {"from_attributes": True}
 
-# --- Пользователи (добавлено) ---
+# --- Пользователи ---
 class UserBase(BaseModel):
     email: EmailStr
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(..., min_length=8)  # 🔐 Мин. длина пароля 8 символов
 
 class UserLogin(UserBase):
     password: str
