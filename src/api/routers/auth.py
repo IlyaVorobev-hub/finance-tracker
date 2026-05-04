@@ -1,80 +1,63 @@
-# src/api/auth.py
-import os
-import re
-from datetime import datetime, timedelta, timezone
-from typing import Optional
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+# src/api/routers/auth.py
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from datetime import timedelta
 
-from . import models, database
+# 🔐 ИСПРАВЛЕНИЕ: .. означает "выйти из routers в api"
+from .. import models, schemas, database, auth
 
-# === НАСТРОЙКИ БЕЗОПАСНОСТИ ===
-#  Fallback на 30 минут, если переменная в Render не задана
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = "HS256"
+router = APIRouter(tags=["auth"])
 
-if not SECRET_KEY:
-    raise ValueError("❌ SECRET_KEY environment variable not set!")
-
-# 🔐 Хеширование паролей (12 раундов bcrypt)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
-
-# === ВАЛИДАЦИЯ ПАРОЛЯ ===
-def validate_password(password: str) -> bool:
-    if len(password) < 8: return False
-    if not re.search(r"[A-Z]", password): return False
-    if not re.search(r"[a-z]", password): return False
-    if not re.search(r"\d", password): return False
-    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password): return False
-    return True
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-# === JWT ТОКЕНЫ ===
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    # 🔐 Используем UTC, чтобы избежать проблем с часовыми поясами
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-# === ПОЛУЧЕНИЕ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ===
-async def get_current_user(
-    token: str = Depends(oauth2_scheme), 
+@router.post("/register", response_model=schemas.Token)
+def register(
+    request: Request,
+    user_in: schemas.UserCreate, 
     db: Session = Depends(database.get_db)
 ):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Неверные учётные данные",
-        headers={"WWW-Authenticate": "Bearer"},
+    # Проверка сложности пароля
+    if not auth.validate_password(user_in.password):
+        raise HTTPException(
+            status_code=400, 
+            detail="Пароль слишком слабый. Требуется: 8+ символов, заглавные, строчные, цифры и спецсимволы."
+        )
+
+    existing = db.query(models.User).filter(models.User.email == user_in.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    user = models.User(
+        email=user_in.email,
+        hashed_password=auth.get_password_hash(user_in.password),
+        is_active=True
     )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    access_token = auth.create_access_token(data={"sub": user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
 
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if user is None:
-        raise credentials_exception
-    return user
-
-# === АУТЕНТИФИКАЦИЯ ДЛЯ ЛОГИНА ===
-def authenticate_user(db, email: str, password: str):
-    user = db.query(models.User).filter(models.User.email == email).first()
+@router.post("/login", response_model=schemas.Token)
+async def login(
+    request: Request,
+    form_ OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(database.get_db)
+):
+    # 🔐 Rate Limit: не более 5 попыток в минуту
+    limiter = request.app.state.limiter
+    await limiter.check(request)
+    
+    user = auth.authenticate_user(db, form_data.username, form_data.password)
     if not user:
-        return False
-    if not verify_password(password, user.hashed_password):
-        return False
-    return user
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token = auth.create_access_token(
+        data={"sub": user.email},
+        expires_delta=timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
