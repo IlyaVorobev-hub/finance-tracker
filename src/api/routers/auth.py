@@ -4,28 +4,29 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
-# 🔐 ИМПОРТЫ: .. = выйти из routers в api
+# 🔐 ИМПОРТЫ
 from .. import models, schemas, database, auth
 
 router = APIRouter(tags=["auth"])
 
+
 @router.post("/register", response_model=schemas.Token)
 def register(
     request: Request,
-    user_in: schemas.UserCreate, 
+    user_in: schemas.UserCreate,
     db: Session = Depends(database.get_db)
 ):
     # Проверка сложности пароля
     if not auth.validate_password(user_in.password):
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="Пароль слишком слабый. Требуется: 8+ символов, заглавные, строчные, цифры и спецсимволы."
         )
 
     existing = db.query(models.User).filter(models.User.email == user_in.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
     user = models.User(
         email=user_in.email,
         hashed_password=auth.get_password_hash(user_in.password),
@@ -34,9 +35,10 @@ def register(
     db.add(user)
     db.commit()
     db.refresh(user)
-    
+
     access_token = auth.create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
+
 
 @router.post("/login", response_model=schemas.Token)
 async def login(
@@ -44,7 +46,7 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),  # ✅ ИСПРАВЛЕНО: двоеточие и правильное имя
     db: Session = Depends(database.get_db)
 ):
-    # 🔐 Rate Limit: не более 5 попыток в минуту
+    # 🔐 Rate Limit: получаем limiter из request
     limiter = request.app.state.limiter
     await limiter.check(request)
     
@@ -55,7 +57,7 @@ async def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     access_token = auth.create_access_token(
         data={"sub": user.email},
         expires_delta=timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
