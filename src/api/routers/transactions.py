@@ -4,11 +4,11 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
 
+# 🔐 ИМПОРТЫ: .. = выйти из routers в api
 from .. import models, schemas, database, auth
 
 router = APIRouter(tags=["transactions"])
 
-# ✅ ВСЕ запросы теперь требуют авторизации
 @router.get("/", response_model=List[schemas.Transaction])
 def read_transactions(
     skip: int = 0, 
@@ -21,7 +21,7 @@ def read_transactions(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     query = db.query(models.Transaction).filter(
-        models.Transaction.user_id == current_user.id  # 🔐 ИЗОЛЯЦИЯ ПОЛЬЗОВАТЕЛЯ
+        models.Transaction.user_id == current_user.id  # 🔐 ИЗОЛЯЦИЯ
     )
     
     if tx_type:
@@ -77,8 +77,8 @@ def create_transaction(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     db_transaction = models.Transaction(
-        **transaction.dict(),
-        user_id=current_user.id  #  АВТОМАТИЧЕСКИ ПРИВЯЗЫВАЕМ К ПОЛЬЗОВАТЕЛЮ
+        **transaction.model_dump(),  # Pydantic v2: используем model_dump() вместо dict()
+        user_id=current_user.id  # 🔐 АВТО-ПРИВЯЗКА К ПОЛЬЗОВАТЕЛЮ
     )
     db.add(db_transaction)
     db.commit()
@@ -93,7 +93,7 @@ def delete_transaction(
 ):
     tx = db.query(models.Transaction).filter(
         models.Transaction.id == tx_id,
-        models.Transaction.user_id == current_user.id  # 🔐 ПРОВЕРЯЕМ ВЛАДЕНИЕ
+        models.Transaction.user_id == current_user.id  # 🔐 ПРОВЕРКА ВЛАДЕНИЯ
     ).first()
     
     if not tx:
