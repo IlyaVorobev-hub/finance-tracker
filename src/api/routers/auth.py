@@ -4,7 +4,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
-# 🔐 ИСПРАВЛЕНИЕ: .. означает "выйти из routers в api"
+# 🔐 ИМПОРТЫ: .. = выйти из routers в api
 from .. import models, schemas, database, auth
 
 router = APIRouter(tags=["auth"])
@@ -41,7 +41,7 @@ def register(
 @router.post("/login", response_model=schemas.Token)
 async def login(
     request: Request,
-    form_ OAuth2PasswordRequestForm = Depends(),
+    form_data: OAuth2PasswordRequestForm = Depends(),  # ✅ ИСПРАВЛЕНО: двоеточие и правильное имя
     db: Session = Depends(database.get_db)
 ):
     # 🔐 Rate Limit: не более 5 попыток в минуту
