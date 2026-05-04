@@ -9,21 +9,20 @@ from .routers import auth, transactions
 from .database import engine, Base
 
 # === ИНИЦИАЛИЗАЦИЯ ===
-# Создаём FastAPI
 app = FastAPI(title="Finance Tracker API", version="1.0.0")
 
-# Настраиваем лимитер (для защиты от брутфорса)
+# Настраиваем лимитер
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# === 🔐 CORS (Защита от доступа чужих сайтов) ===
+# === 🔐 CORS (ЗАШИЛИ АДРЕС В КОД, ЧТОБЫ НЕ ЗАВИСЕТЬ ОТ RENDER) ===
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:8501",  # Ваш локальный Streamlit
-        "https://finance-tracker-frontend.onrender.com",  # Ваш фронтенд на Render (если задеплоите)
-        "https://finance-tracker-api-q1qg.onrender.com"  # Сам API (для Swagger/docs)
+        "http://localhost:8501",  # Для локального Streamlit
+        "https://finance-tracker-api-q1qg.onrender.com" # Для вашего API (чтобы Swagger работал)
+        # Сюда можно будет добавить адрес фронтенда, когда задеплоите его
     ],
     allow_credentials=True,
     allow_methods=["*"],
