@@ -6,7 +6,7 @@ from datetime import timedelta
 
 # 🔐 ИМПОРТЫ
 from .. import models, schemas, database, auth
-from ..limiter import limiter  # ← ИМПОРТ ИЗ НОВОГО ФАЙЛА
+from ..limiter import limiter  # ← ИМПОРТ ИЗ НОВОГО ФАЙЛА (без циклической зависимости)
 
 router = APIRouter(tags=["auth"])
 
@@ -46,7 +46,7 @@ def register(
 @limiter.limit("5/minute")  # 🔐 Не более 5 попыток входа в минуту с одного IP
 async def login(
     request: Request,
-    form_ OAuth2PasswordRequestForm = Depends(),  # ✅ ИСПРАВЛЕНО: двоеточие и правильное имя
+    form_data: OAuth2PasswordRequestForm = Depends(),  # ✅ ИСПРАВЛЕНО: двоеточие и правильное имя
     db: Session = Depends(database.get_db)
 ):
     user = auth.authenticate_user(db, form_data.username, form_data.password)
