@@ -19,7 +19,7 @@ if "user_email" not in st.session_state:
 
 # 🔐 БЕЗОПАСНОЕ ОПРЕДЕЛЕНИЕ URL
 # 1. Проверяем переменную окружения (если задана в Render)
-BASE_URL = os.getenv("API_URL")
+BASE_URL = os.getenv("API_URL", "https://finance-tracker-api-q1qg.onrender.com")
 
 # 2. Если не задана, определяем среду автоматически
 if not BASE_URL:
