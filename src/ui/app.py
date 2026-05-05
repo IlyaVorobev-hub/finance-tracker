@@ -102,33 +102,90 @@ def delete_transaction(token: str, tx_id: int):
 
 if not st.session_state.token:
     st.title("💰 Finance Tracker Pro")
+    
+    # 🔐 Переключатель между входом и регистрацией
+    mode = st.radio("Выберите действие", ["🔐 Вход", "📝 Регистрация"], horizontal=True)
+    
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.subheader(" Вход")
-        email = st.text_input("Email", placeholder="you@example.com")
-        password = st.text_input("Пароль", type="password")
-        if st.button("Войти", type="primary", use_container_width=True):
-            if not email or not password: 
-                st.warning("Введите email и пароль")
-            else:
-                try:
-                    resp = requests.post(f"{BASE_URL}/api/v1/auth/login", 
-                        data={"username": email, "password": password},
-                        headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=10)
-                    
-                    if resp.status_code == 200:
-                        st.session_state.token = resp.json()["access_token"]
-                        st.session_state.user_email = email
-                        st.rerun()
-                    elif resp.status_code == 429:
-                        st.error("🛑 Слишком много попыток. Подождите минуту.")
-                    else:
-                        # Безопасное сообщение, не раскрывающее детали
-                        st.error("Неверный email или пароль")
-                except requests.exceptions.ConnectionError:
-                    st.error("Не удалось подключиться к серверу.")
-                except Exception:
-                    st.error("Произошла ошибка. Попробуйте позже.")
+        if mode == "🔐 Вход":
+            st.subheader("Вход в аккаунт")
+            email = st.text_input("Email", placeholder="you@example.com", key="login_email")
+            password = st.text_input("Пароль", type="password", key="login_password")
+            
+            if st.button("Войти", type="primary", use_container_width=True):
+                if not email or not password:
+                    st.warning("Введите email и пароль")
+                else:
+                    try:
+                        resp = requests.post(
+                            f"{BASE_URL}/api/v1/auth/login",
+                            data={"username": email, "password": password},
+                            headers={"Content-Type": "application/x-www-form-urlencoded"},
+                            timeout=10
+                        )
+                        if resp.status_code == 200:
+                            st.session_state.token = resp.json()["access_token"]
+                            st.session_state.user_email = email
+                            st.rerun()
+                        elif resp.status_code == 429:
+                            st.error("🛑 Слишком много попыток. Подождите минуту.")
+                        else:
+                            st.error("Неверный email или пароль")
+                    except requests.exceptions.ConnectionError:
+                        st.error("Не удалось подключиться к серверу.")
+                    except Exception:
+                        st.error("Произошла ошибка. Попробуйте позже.")
+        
+        else:  # Регистрация
+            st.subheader("Создать аккаунт")
+            reg_email = st.text_input("Email", placeholder="you@example.com", key="reg_email")
+            reg_password = st.text_input("Пароль", type="password", key="reg_password")
+            reg_password_confirm = st.text_input("Подтвердите пароль", type="password", key="reg_password_confirm")
+            
+            with st.expander("🔐 Требования к паролю"):
+                st.markdown("""
+                - Минимум **8 символов**
+                - Хотя бы **1 заглавная** буква (A-Z)
+                - Хотя бы **1 строчная** буква (a-z)
+                - Хотя бы **1 цифра** (0-9)
+                - Хотя бы **1 спецсимвол** (!@#$%^&*...)
+                """)
+            
+            if st.button("Зарегистрироваться", type="primary", use_container_width=True):
+                if not reg_email or not reg_password:
+                    st.warning("Заполните все поля")
+                elif reg_password != reg_password_confirm:
+                    st.error("Пароли не совпадают")
+                else:
+                    try:
+                        resp = requests.post(
+                            f"{BASE_URL}/api/v1/auth/register",
+                            json={"email": reg_email, "password": reg_password},
+                            timeout=10
+                        )
+                        
+                        if resp.status_code == 200:
+                            st.success("✅ Регистрация успешна! Входим...")
+                            # Автоматический вход после регистрации
+                            st.session_state.token = resp.json()["access_token"]
+                            st.session_state.user_email = reg_email
+                            st.cache_data.clear()
+                            st.balloons()
+                            st.rerun()
+                        elif resp.status_code == 400:
+                            error_detail = resp.json().get("detail", "Ошибка регистрации")
+                            st.error(f"❌ {error_detail}")
+                        elif resp.status_code == 422:
+                            st.error("❌ Неверный формат данных. Проверьте email и пароль.")
+                        else:
+                            st.error("❌ Ошибка при регистрации. Попробуйте позже.")
+                            
+                    except requests.exceptions.ConnectionError:
+                        st.error("Не удалось подключиться к серверу.")
+                    except Exception:
+                        st.error("Произошла ошибка. Попробуйте позже.")
+    
     st.stop()
 
 # --- ОСНОВНОЙ ИНТЕРФЕЙС ---
