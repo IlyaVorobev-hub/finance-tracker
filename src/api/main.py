@@ -21,6 +21,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:8501",  # Для локального Streamlit
+        "https://finance-tracker-frontend.onrender.com", 
         "https://finance-tracker-api-q1qg.onrender.com" # Для вашего API (чтобы Swagger работал)
         # Сюда можно будет добавить адрес фронтенда, когда задеплоите его
     ],
