@@ -1,6 +1,7 @@
 # src/api/main.py
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
 # 🔐 ИМПОРТ лимитера из отдельного файла (избегаем циклических импортов)
@@ -19,7 +20,15 @@ app = FastAPI(
 
 # 🔗 Прикрепляем лимитер к приложению (обязательно для работы @limiter.limit)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, RateLimitExceeded)
+
+# 🔧 FIX: Корректный обработчик исключений RateLimit
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests, please try again later."}
+    )
+
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
 # === 🔐 CORS (Cross-Origin Resource Sharing) ===
 # Разрешаем запросы только с доверенных источников
@@ -39,7 +48,8 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(transactions.router, prefix="/api/v1/transactions", tags=["transactions"])
 
-# === HEALTH CHECK (проверка работоспособности) ===
+# === HEALTH CHECKS ===
+
 @app.get("/")
 def read_root():
     return {
@@ -49,7 +59,12 @@ def read_root():
         "docs": "/docs"
     }
 
-# === ПРОСТАЯ ПРОВЕРКА БД (опционально) ===
+# 🔧 FIX: Standard health check для Render.com (проверяет именно этот путь)
+@app.get("/health")
+async def render_health_check():
+    """Standard health check for Render.com"""
+    return {"status": "healthy", "service": "finance-tracker-api"}
+
 @app.get("/health/db")
 def health_db():
     """Проверка подключения к базе данных"""

@@ -1,0 +1,97 @@
+# render.yaml
+# Finance Tracker API — Infrastructure as Code для Render.com
+# Документация: https://render.com/docs/infrastructure-as-code
+
+version: "1"
+
+services:
+  - type: web
+    name: finance-tracker-api
+    env: python
+    region: frankfurt  # 🔧 Выбери: frankfurt | oregon | singapore | virginia
+    plan: free  # 🔧 free | starter ($7/мес) | standard ($25/мес)
+    
+    # 🛠️ Сборка
+    buildCommand: pip install -r requirements.txt
+    startCommand: alembic upgrade head || true && uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
+    
+    # 🏥 Health Check (Render проверяет этот endpoint каждые 30 сек)
+    healthCheckPath: /health
+    healthCheckInterval: 30s
+    healthCheckTimeout: 5s
+    healthCheckSuccessThreshold: 2
+    healthCheckFailureThreshold: 3
+    
+    # 🔄 Деплой
+    autoDeploy: true  # Авто-деплой при пуше в branch
+    branch: main  # 🔧 Укажи свою ветку: main / master / develop
+    
+    # 🌐 Сеть
+    numInstances: 1  # Для free-плана только 1
+    dockerfilePath: null  # Не используем Dockerfile, собираем нативно
+    
+    # 🔐 Environment Variables
+    envVars:
+      # === Python ===
+      - key: PYTHON_VERSION
+        value: "3.11.0"  # 🔧 Сверь с локальной версией
+      
+      # === База данных (автоматически подставится при создании БД ниже) ===
+      - key: DATABASE_URL
+        fromDatabase:
+          name: finance-db
+          property: connectionString
+      
+      # === JWT Auth ===
+      - key: SECRET_KEY
+        generateValue: true  # Render сгенерирует безопасный ключ при первом деплое
+        # ⚠️ После первого деплоя: скопируй значение из Dashboard и закоммить в .env (не в репо!)
+      
+      - key: ALGORITHM
+        value: "HS256"
+      
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      
+      # === Rate Limiting (slowapi) ===
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      
+      - key: RATE_LIMIT_DEFAULT
+        value: "100/minute"
+      
+      # === CORS (должны совпадать с main.py) ===
+      - key: ALLOWED_ORIGINS
+        value: "http://localhost:8501,https://finance-tracker-frontend-1h1m.onrender.com"
+      
+      # === Логи и отладка ===
+      - key: LOG_LEVEL
+        value: "INFO"  # 🔧 DEBUG для отладки, INFO для продакшена
+      
+      - key: ENVIRONMENT
+        value: "production"
+
+    # 📦 Pre-deploy hook (опционально: проверка перед деплоем)
+    # preDeployCommand: python -m py_compile src/api/main.py
+
+  # === PostgreSQL Database (отдельный сервис) ===
+  - type: postgres
+    name: finance-db
+    databaseName: finance_tracker
+    user: finance_user
+    plan: free  # 🔧 free (1 ГБ) | starter ($15/мес, 10 ГБ)
+    ipAllowList: []  # Пустой = доступ только сервисам Render внутри сети
+    # ⚠️ Для доступа извне: добавь свой IP в ipAllowList: ["123.45.67.89/32"]
+
+# === Опционально: Cron Jobs для бэкапов / аналитики ===
+# - type: cron
+#   name: finance-backup
+#   schedule: "0 3 * * *"  # Каждый день в 03:00 UTC
+#   command: python scripts/backup.py
+#   env: python
+#   buildCommand: pip install -r requirements.txt
+#   envVars:
+#     - key: DATABASE_URL
+#       fromDatabase:
+#         name: finance-db
+#         property: connectionString

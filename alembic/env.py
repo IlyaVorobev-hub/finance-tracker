@@ -1,32 +1,42 @@
-from logging.config import fileConfig
-from sqlalchemy import create_engine  # ✅ ДОБАВЛЕНО!
-from sqlalchemy import pool
-from alembic import context
 import os
-from dotenv import load_dotenv
+import sys
+from logging.config import fileConfig
+from sqlalchemy import create_engine, pool
+from alembic import context
 
-# Загружаем переменные из .env (для локальной разработки)
-load_dotenv()
+# 🔧 Добавляем корень проекта в sys.path для корректных импортов
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Импорт ваших моделей (для авто-генерации миграций)
-# Замените на ваш реальный путь к моделям:
-from src.api.models import Base  # ✅ Проверьте путь!
+from src.api.database import Base, engine
+from src.api import models  # 🔥 Критично: Alembic должен "увидеть" модели
 
-# Alembic Config object
 config = context.config
-
-# Настройка логгера
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Метаданные для авто-генерации
+# 🔧 FIX: Читаем DATABASE_URL из окружения
+def get_url():
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        # Fallback для локальной разработки
+        try:
+            from src.core.config import settings
+            url = getattr(settings, "DATABASE_URL", None)
+        except ImportError:
+            pass
+    
+    if not url:
+        raise ValueError("DATABASE_URL не найдена в переменных окружения")
+    
+    # Render использует postgres://, SQLAlchemy требует postgresql://
+    return url.replace("postgres://", "postgresql://", 1)
+
+config.set_main_option("sqlalchemy.url", get_url())
 target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
-    """Запуск миграций в 'offline' режиме."""
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=get_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -35,44 +45,18 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 def run_migrations_online() -> None:
-    """Запуск миграций в 'online' режиме."""
-    
-    # Получаем DATABASE_URL из окружения (Render) или .env (локально)
-    url = os.getenv("DATABASE_URL")
-    
-    if not url:
-        # Резервный вариант: читаем из alembic.ini
-        url = config.get_main_option("sqlalchemy.url")
-    
-    if not url:
-        raise ValueError("❌ DATABASE_URL not found!")
-    
-    # Отладочный вывод (удалите после успешного деплоя)
-    print("=" * 60)
-    print(f"🔗 ALEMBIC: DATABASE_URL exists: {url is not None}")
-    if url:
-        print(f"🔗 ALEMBIC: Starts with: {url[:30]}...")
-        print(f"🔗 ALEMBIC: Is PostgreSQL: {url.startswith('postgres')}")
-    print("=" * 60)
-    
-    # Для PostgreSQL добавляем SSL-параметры
-    if url and (url.startswith("postgres://") or url.startswith("postgresql://")):
-        if "?sslmode=" not in url:
-            url += "?sslmode=require"
-    
-    # Создаём движок
-    connectable = create_engine(url, pool_pre_ping=True)
+    connectable = create_engine(
+        get_url(),
+        poolclass=pool.NullPool,  # Для серверлесс-окружений (Render)
+        pool_pre_ping=True,  # Проверка соединения перед запросом
+        pool_recycle=300  # Пересоздавать соединение каждые 5 минут
+    )
     
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            compare_type=True,
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
 
-# Главный входной пункт
 if context.is_offline_mode():
     run_migrations_offline()
 else:
