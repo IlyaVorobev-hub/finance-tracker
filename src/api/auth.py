@@ -1,8 +1,10 @@
 # src/api/auth.py
-# 🔐 УТИЛИТЫ АУТЕНТИФИКАЦИИ (без роутеров!)
+# 🔐 УТИЛИТЫ АУТЕНТИФИКАЦИИ
+# ⚠️ В этом файле НЕТ эндпоинтов, НЕТ APIRouter, НЕТ роутеров!
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Union
+from typing import Optional
+import os
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status
@@ -10,12 +12,14 @@ from sqlalchemy.orm import Session
 
 # ✅ Абсолютные импорты
 from src.api import models, schemas, database
-from src.core.config import settings
 
 # === Настройки ===
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# 🔧 SECRET_KEY из окружения (Render задаёт в Env Vars)
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-prod")
 
 
 # === Вспомогательные функции ===
@@ -45,7 +49,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 
