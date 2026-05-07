@@ -1,64 +1,64 @@
-# src/api/routers/auth.py
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import OAuth2PasswordRequestForm
+# src/api/auth.py
+# 🔐 УТИЛИТЫ АУТЕНТИФИКАЦИИ (без роутеров!)
+
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Union
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import timedelta
 
-# 🔐 ИМПОРТЫ
-from .. import models, schemas, database, auth
-from ..limiter import limiter  # ← ИМПОРТ ИЗ НОВОГО ФАЙЛА (без циклической зависимости)
+# ✅ Абсолютные импорты
+from src.api import models, schemas, database
+from src.core.config import settings
 
-router = APIRouter(tags=["auth"])
-
-
-@router.post("/register", response_model=schemas.Token)
-@limiter.limit("10/minute")  # Не более 10 регистраций в минуту с одного IP
-def register(
-    request: Request,
-    user_in: schemas.UserCreate,
-    db: Session = Depends(database.get_db)
-):
-    # Проверка сложности пароля
-    if not auth.validate_password(user_in.password):
-        raise HTTPException(
-            status_code=400,
-            detail="Пароль слишком слабый. Требуется: 8+ символов, заглавные, строчные, цифры и спецсимволы."
-        )
-
-    existing = db.query(models.User).filter(models.User.email == user_in.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    user = models.User(
-        email=user_in.email,
-        hashed_password=auth.get_password_hash(user_in.password),
-        is_active=True
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    access_token = auth.create_access_token(data={"sub": user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+# === Настройки ===
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
-@router.post("/login", response_model=schemas.Token)
-@limiter.limit("5/minute")  # 🔐 Не более 5 попыток входа в минуту с одного IP
-async def login(
-    request: Request,
-    form_data: OAuth2PasswordRequestForm = Depends(),  # ✅ ИСПРАВЛЕНО: двоеточие и правильное имя
-    db: Session = Depends(database.get_db)
-):
-    user = auth.authenticate_user(db, form_data.username, form_data.password)
+# === Вспомогательные функции ===
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Проверка пароля"""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    """Хеширование пароля"""
+    return pwd_context.hash(password)
+
+
+def authenticate_user(db: Session, email: str, password: str):
+    """Аутентификация пользователя"""
+    user = db.query(models.User).filter(models.User.email == email).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
 
-    access_token = auth.create_access_token(
-        data={"sub": user.email},
-        expires_delta=timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Создание JWT токена"""
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def validate_password(password: str) -> bool:
+    """Валидация сложности пароля"""
+    if len(password) < 8:
+        return False
+    if not any(c.isupper() for c in password):
+        return False
+    if not any(c.islower() for c in password):
+        return False
+    if not any(c.isdigit() for c in password):
+        return False
+    if not any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password):
+        return False
+    return True
