@@ -1,45 +1,86 @@
 # src/api/schemas.py
-from pydantic import BaseModel, EmailStr, Field
-from datetime import date, datetime
-from typing import Optional, List, Literal
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from typing import Optional, List
+from datetime import datetime
+from enum import Enum
 
-# --- Транзакции ---
-class TransactionBase(BaseModel):
-    amount: float = Field(..., gt=0)
-    category: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = Field(default="", max_length=500)
-    date: date
-    type: Literal['income', 'expense'] = 'expense'
-    payment_method: Literal['cash', 'card'] = 'card'
 
-class TransactionCreate(TransactionBase):
-    pass
+class TransactionType(str, Enum):
+    INCOME = "income"
+    EXPENSE = "expense"
 
-class TransactionResponse(TransactionBase):
-    id: int
-    user_id: int
-    created_at: datetime
-    model_config = {"from_attributes": True}
 
-# ✅ АЛИАС: чтобы код роутеров работал без изменений
-Transaction = TransactionResponse
+# === User Schemas ===
 
-# --- Пользователи ---
 class UserBase(BaseModel):
     email: EmailStr
+
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
 
-class UserLogin(UserBase):
-    password: str
 
-class User(UserBase):
+class UserOut(UserBase):
     id: int
     is_active: bool
-    created_at: Optional[datetime] = None
-    model_config = {"from_attributes": True}
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# === Token Schemas ===
 
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
+
+
+# === Category Schemas ===
+
+class CategoryBase(BaseModel):
+    name: str
+    type: TransactionType
+
+
+class CategoryCreate(CategoryBase):
+    pass
+
+
+class CategoryOut(CategoryBase):
+    id: int
+    user_id: Optional[int] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# === Transaction Schemas ===
+
+class TransactionBase(BaseModel):
+    amount: float = Field(..., gt=0)  # Должно быть больше 0
+    description: Optional[str] = None
+    date: datetime = Field(default_factory=datetime.utcnow)
+    type: TransactionType
+    payment_method: Optional[str] = None
+
+
+class TransactionCreate(TransactionBase):
+    # 🔧 FIX: category может быть строкой (названием) или ID
+    category: Optional[str] = None
+    category_id: Optional[int] = None
+
+
+class TransactionOut(TransactionBase):
+    id: int
+    user_id: int
+    category_id: Optional[int] = None
+    # 🔧 FIX: created_at с default_factory
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None
+    category: Optional[CategoryOut] = None
+
+    model_config = ConfigDict(from_attributes=True)
