@@ -61,7 +61,7 @@ class CategoryOut(CategoryBase):
 # === Transaction Schemas ===
 
 class TransactionBase(BaseModel):
-    amount: float = Field(..., gt=0)  # Должно быть больше 0
+    amount: float = Field(..., gt=0)
     description: Optional[str] = None
     date: datetime = Field(default_factory=datetime.utcnow)
     type: TransactionType
@@ -69,7 +69,6 @@ class TransactionBase(BaseModel):
 
 
 class TransactionCreate(TransactionBase):
-    # 🔧 FIX: category может быть строкой (названием) или ID
     category: Optional[str] = None
     category_id: Optional[int] = None
 
@@ -78,7 +77,6 @@ class TransactionOut(TransactionBase):
     id: int
     user_id: int
     category_id: Optional[int] = None
-    # 🔧 FIX: created_at с default_factory
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     category: Optional[CategoryOut] = None

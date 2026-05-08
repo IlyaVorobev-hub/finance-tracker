@@ -1,7 +1,17 @@
 # src/api/models.py
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum, Text
+from sqlalchemy import (
+    Column, 
+    Integer, 
+    String, 
+    Float, 
+    DateTime, 
+    ForeignKey, 
+    Enum, 
+    Text, 
+    Boolean,  # 🔧 ДОБАВЛЕНО!
+    func  # 🔧 ДОБАВЛЕНО!
+)
 from sqlalchemy.orm import relationship, declarative_base
-from sqlalchemy.sql import func
 from datetime import datetime
 import enum
 
@@ -19,7 +29,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True)  # ✅ Boolean теперь импортирован
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     
     transactions = relationship("Transaction", back_populates="user")
@@ -31,10 +41,10 @@ class Category(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     type = Column(Enum(TransactionType), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # NULL = глобальная категория
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     
-    transactions = relationship("Transaction", back_populates="category")
+    transactions = relationship("Transaction", back_populates="transactions")
 
 
 class Transaction(Base):
@@ -47,7 +57,6 @@ class Transaction(Base):
     type = Column(Enum(TransactionType), nullable=False)
     payment_method = Column(String, nullable=True)
     
-    # 🔧 FIX: Добавлены server_default для created_at
     created_at = Column(
         DateTime, 
         server_default=func.now(), 
@@ -60,10 +69,8 @@ class Transaction(Base):
         nullable=False
     )
     
-    # Foreign Keys
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     
-    # Relationships
     user = relationship("User", back_populates="transactions")
     category = relationship("Category", back_populates="transactions")
