@@ -9,7 +9,7 @@ from src.api import models, schemas, database
 from src.api.auth import get_current_user
 from src.api.limiter import limiter
 
-router = APIRouter(prefix="/transactions", tags=["transactions"])
+router = APIRouter(tags=["transactions"])
 
 
 @router.get("/", response_model=List[schemas.TransactionOut])
