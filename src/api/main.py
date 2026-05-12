@@ -1,87 +1,42 @@
-# src/api/main.py
-from fastapi import FastAPI, Request
+# src/api/main.py — начало файла
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from slowapi.errors import RateLimitExceeded
+import os
 
-# 🔐 ИМПОРТ лимитера из отдельного файла (избегаем циклических импортов)
-from .limiter import limiter
-from .routers import auth, transactions
-from .database import engine, Base
+from src.api.database import engine, Base, init_db  # ← добавь init_db
+from src.api.routers import auth, transactions
 
-# === ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ ===
+# === Инициализация приложения ===
 app = FastAPI(
     title="Finance Tracker API",
-    description="Защищённый персональный финансовый трекер",
-    version="1.0.0",
-    docs_url="/docs",
-    openapi_url="/openapi.json"
+    description="API для учёта личных финансов",
+    version="1.0.0"
 )
 
-# 🔗 Прикрепляем лимитер к приложению (обязательно для работы @limiter.limit)
-app.state.limiter = limiter
+# 🔧 Вызываем безопасное создание таблиц при старте
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
-# 🔧 FIX: Корректный обработчик исключений RateLimit
-async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
-    return JSONResponse(
-        status_code=429,
-        content={"detail": "Too many requests, please try again later."}
-    )
-
-app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
-
-# === 🔐 CORS (Cross-Origin Resource Sharing) ===
-# Разрешаем запросы только с доверенных источников
+# === CORS ===
+origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8501").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8501",  # Локальная разработка (Streamlit)
-        "https://finance-tracker-frontend-1h1m.onrender.com",  # Публичный фронтенд
-        "https://finance-tracker-api-q1qg.onrender.com"  # Сам API (для Swagger/docs)
-    ],
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# === ПОДКЛЮЧЕНИЕ РОУТЕРОВ ===
-app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
-app.include_router(transactions.router, prefix="/api/v1/transactions", tags=["transactions"])
+# === Роутеры ===
+app.include_router(auth.router, prefix="/api/v1/auth")
+app.include_router(transactions.router, prefix="/api/v1/transactions")
 
-# === HEALTH CHECKS ===
-
-@app.get("/")
-def read_root():
-    return {
-        "status": "ok",
-        "service": "Finance Tracker API",
-        "version": "1.0.0",
-        "docs": "/docs"
-    }
-
-# 🔧 FIX: Standard health check для Render.com (проверяет именно этот путь)
+# === Health check ===
 @app.get("/health")
-async def render_health_check():
-    """Standard health check for Render.com"""
+def health():
     return {"status": "healthy", "service": "finance-tracker-api"}
 
-@app.get("/health/db")
-def health_db():
-    """Проверка подключения к базе данных"""
-    try:
-        with engine.connect() as conn:
-            conn.execute("SELECT 1")
-        return {"database": "connected", "status": "ok"}
-    except Exception as e:
-        return {"database": "error", "status": "fail", "error": str(e)}
-
-# === СОЗДАНИЕ ТАБЛИЦ ПРИ ЗАПУСКЕ (если миграции не сработали) ===
-# ⚠️ В продакшене лучше полагаться только на Alembic
-@app.on_event("startup")
-def startup_event():
-    """
-    Инициализация при старте приложения.
-    Создаёт таблицы, если их ещё нет (для первого запуска).
-    """
-    # Base.metadata.create_all(bind=engine)  # ← Раскомментируйте, если таблицы не создаются через Alembic
-    pass
+@app.get("/")
+def root():
+    return {"message": "Finance Tracker API is running"}
